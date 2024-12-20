@@ -47,7 +47,7 @@
             user-select: none;
         }
 
-        #startScreen {
+        #startScreen, #gameOverScreen {
             position: absolute;
             top: 0;
             left: 0;
@@ -62,18 +62,22 @@
             text-align: center;
         }
 
-        #startScreen h1 {
+        #gameOverScreen {
+            display: none;
+        }
+
+        #startScreen h1, #gameOverScreen h1 {
             font-size: 48px;
             margin-bottom: 20px;
         }
 
-        #startScreen p {
+        #startScreen p, #gameOverScreen p {
             font-size: 18px;
             margin-bottom: 30px;
             max-width: 600px;
         }
 
-        #startButton {
+        #startButton, #playAgainButton {
             font-size: 24px;
             padding: 15px 30px;
             background: #4CAF50;
@@ -84,7 +88,6 @@
         }
 
         @media (max-width: 800px) {
-
             .controls {
                 display: flex;
             }
@@ -107,16 +110,24 @@
         <p>レジ袋が海に流れるのを防ぐため、ネギを発射して取り除きましょう。矢印キーで移動し、スペースキーでネギを発射します。</p>
         <button id="startButton">ゲームをプレイ</button>
     </div>
+    <div id="gameOverScreen">
+        <h1>ゲームオーバー</h1>
+        <p>スコア: <span id="finalScore"></span></p>
+        <button id="playAgainButton">もう一度プレイ</button>
+    </div>
     <div class="controls">
         <button class="control-btn" id="leftBtn">←</button>
-        <button class="control-btn" id="fireBtn">発射</button>
         <button class="control-btn" id="rightBtn">→</button>
+        <button class="control-btn" id="fireBtn">ネギ</button>
     </div>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
         const startButton = document.getElementById('startButton');
+        const playAgainButton = document.getElementById('playAgainButton');
+        const finalScoreElement = document.getElementById('finalScore');
 
         // ゲームの設定
         const GAME_WIDTH = 800;
@@ -186,15 +197,16 @@
             x: 0,
             y: 0,
             active: false,
-            speed: 16
+            speed: 8
         };
 
         let plasticBags = [];
-        let gameSpeed = 1;
+        let gameSpeed = 0.5;
         let gameOver = false;
         let stageCleared = false;
         let currentStage = 1;
         let gameStarted = false;
+        let score = 0;
 
         // プラスチック袋の初期化
         function initPlasticBags() {
@@ -275,6 +287,7 @@
                             bag.active = false;
                             gameOver = true;
                             gameOverSound.play();
+                            showGameOverScreen();
                         }
                     }
                 }
@@ -291,7 +304,7 @@
                 plasticBags.forEach(bag => {
                     if (bag.active && bag.opacity === 1 && checkCollision(negi, bag)) {
                         bag.active = false;
-                        negi.active = false;
+                        score += 10;
                     }
                 });
             }
@@ -320,18 +333,14 @@
                 drawNegi(negi.x, negi.y);
             }
 
-            // ステージ情報の表示
+            // ステージ情報とスコアの表示
             ctx.fillStyle = '#fff';
             ctx.font = '24px Arial';
             ctx.textAlign = 'left';
             ctx.fillText(`レベル: ${currentStage}`, 10, 30);
+            ctx.fillText(`スコア: ${score}`, 10, 60);
 
-            if (gameOver) {
-                ctx.fillStyle = '#fff';
-                ctx.font = '48px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('ゲームオーバー', GAME_WIDTH/2, GAME_HEIGHT/2);
-            } else if (stageCleared) {
+            if (stageCleared) {
                 ctx.fillStyle = '#fff';
                 ctx.font = '48px Arial';
                 ctx.textAlign = 'center';
@@ -353,7 +362,7 @@
         // 次のステージの準備
         function prepareNextStage() {
             currentStage++;
-            gameSpeed += 0.5;
+            gameSpeed += 0.25;
             stageCleared = false;
             initPlasticBags();
         }
@@ -362,19 +371,39 @@
         function initGame() {
             resizeCanvas();
             initPlasticBags();
+            shooter.x = GAME_WIDTH - OCEAN_WIDTH - SHOOTER_WIDTH;
+            shooter.y = GAME_HEIGHT - 50;
+            negi.active = false;
+            gameSpeed = 0.5;
+            gameOver = false;
+            stageCleared = false;
+            currentStage = 1;
+            score = 0;
             gameLoop();
         }
 
         // ゲーム開始
         function startGame() {
             startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
             gameStarted = true;
             initGame();
         }
 
+        // ゲームオーバー画面の表示
+        function showGameOverScreen() {
+            gameOverScreen.style.display = 'flex';
+            finalScoreElement.textContent = score;
+        }
+
         // キーボード操作
         document.addEventListener('keydown', (e) => {
-            if (!gameStarted || gameOver) return;
+            if (gameOver && e.key === ' ') {
+                startGame();
+                return;
+            }
+
+            if (!gameStarted) return;
 
             if (stageCleared && e.key === ' ') {
                 prepareNextStage();
@@ -404,7 +433,7 @@
         function startMoving(direction) {
             if (moveInterval) return;
             moveInterval = setInterval(() => {
-                if (direction === 'left') {
+                if (direction=== 'left') {
                     shooter.x = Math.max(SHOOTER_WIDTH * scaleFactor/2, shooter.x - shooter.speed);
                 } else {
                     shooter.x = Math.min(GAME_WIDTH - OCEAN_WIDTH - SHOOTER_WIDTH * scaleFactor/2, shooter.x + shooter.speed);
@@ -421,7 +450,6 @@
 
         // タッチ操作のイベントリスナー
         leftBtn.addEventListener('touchstart', (e) => {
-            e.preventDefault();
             e.preventDefault();
             startMoving('left');
         });
@@ -448,6 +476,9 @@
 
         // スタートボタンのイベントリスナー
         startButton.addEventListener('click', startGame);
+
+        // もう一度プレイボタンのイベントリスナー
+        playAgainButton.addEventListener('click', startGame);
     </script>
 </body>
 </html>
