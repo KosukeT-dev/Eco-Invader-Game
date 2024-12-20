@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>エコインベーダーゲーム</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #000;
+            touch-action: none;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            max-width: 100%;
+            max-height: 80vh;
+            background: #000;
+        }
+
+        .controls {
+            display: none;
+            width: 100%;
+            max-width: 800px;
+            padding: 20px;
+            justify-content: space-between;
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 24px;
+            touch-action: manipulation;
+            user-select: none;
+        }
+
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            text-align: center;
+        }
+
+        #startScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        #startScreen p {
+            font-size: 18px;
+            margin-bottom: 30px;
+            max-width: 600px;
+        }
+
+        #startButton {
+            font-size: 24px;
+            padding: 15px 30px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 800px) {
+
+            .controls {
+                display: flex;
+            }
+
+            canvas {
+                max-height: 70vh;
+            }
+            
+            /* スマホ表示時のパーツサイズ拡大 */
+            :root {
+                --scale-factor: 1.5;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="startScreen">
+        <h1>エコインベーダーゲーム</h1>
+        <p>レジ袋が海に流れるのを防ぐため、ネギを発射して取り除きましょう。矢印キーで移動し、スペースキーでネギを発射します。</p>
+        <button id="startButton">ゲームをプレイ</button>
+    </div>
+    <div class="controls">
+        <button class="control-btn" id="leftBtn">←</button>
+        <button class="control-btn" id="fireBtn">発射</button>
+        <button class="control-btn" id="rightBtn">→</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const startButton = document.getElementById('startButton');
+
+        // ゲームの設定
+        const GAME_WIDTH = 800;
+        const GAME_HEIGHT = 600;
+        const PLASTIC_BAGS_ROWS = 3;
+        const PLASTIC_BAGS_COLS = 6;
+        const BAG_WIDTH = 60;
+        const BAG_HEIGHT = 75;
+        const SHOOTER_WIDTH = 70;
+        const SHOOTER_HEIGHT = 42;
+        const NEGI_WIDTH = 15;
+        const NEGI_HEIGHT = 45;
+        const OCEAN_WIDTH = 60;
+
+        // スマホ表示時のスケール調整
+        const isMobile = window.innerWidth <= 800;
+        const scaleFactor = isMobile ? 1.5 : 1;
+
+        // 画像の読み込み
+        const bagImage = new Image();
+        const launchpadImage = new Image();
+        const negiImage = new Image();
+        
+        bagImage.src = 'images/plastic-bag.png';
+        launchpadImage.src = 'images/launch-pad.png';
+        negiImage.src = 'images/green-onion.png';
+
+        // 音声の読み込み
+        const stageClearSound = new Audio('audios/stage-clear.mp3');
+        const negiLaunchSound = new Audio('audios/green-onion-launch.mp3');
+        const gameOverSound = new Audio('audios/game-over.mp3');
+
+        let imagesLoaded = 0;
+        const totalImages = 3;
+
+        function imageLoaded() {
+            imagesLoaded++;
+            if (imagesLoaded === totalImages) {
+                startButton.disabled = false;
+            }
+        }
+
+        bagImage.onload = imageLoaded;
+        launchpadImage.onload = imageLoaded;
+        negiImage.onload = imageLoaded;
+
+        // キャンバスのリサイズ
+        function resizeCanvas() {
+            const scale = Math.min(
+                window.innerWidth / GAME_WIDTH,
+                window.innerHeight / GAME_HEIGHT
+            );
+            canvas.width = GAME_WIDTH;
+            canvas.height = GAME_HEIGHT;
+            canvas.style.width = `${GAME_WIDTH * scale}px`;
+            canvas.style.height = `${GAME_HEIGHT * scale}px`;
+        }
+
+        // ゲーム状態
+        let shooter = {
+            x: GAME_WIDTH - OCEAN_WIDTH - SHOOTER_WIDTH,
+            y: GAME_HEIGHT - 50,
+            speed: 5
+        };
+
+        let negi = {
+            x: 0,
+            y: 0,
+            active: false,
+            speed: 16
+        };
+
+        let plasticBags = [];
+        let gameSpeed = 1;
+        let gameOver = false;
+        let stageCleared = false;
+        let currentStage = 1;
+        let gameStarted = false;
+
+        // プラスチック袋の初期化
+        function initPlasticBags() {
+            plasticBags = [];
+            for (let row = 0; row < PLASTIC_BAGS_ROWS; row++) {
+                for (let col = 0; col < PLASTIC_BAGS_COLS; col++) {
+                    plasticBags.push({
+                        x: col * (BAG_WIDTH + 30) + 80,
+                        y: row * (BAG_HEIGHT + 30) + 80,
+                        active: true,
+                        opacity: 1
+                    });
+                }
+            }
+        }
+
+        // プラスチック袋の描画
+        function drawPlasticBag(x, y, opacity) {
+            ctx.save();
+            ctx.globalAlpha = opacity;
+            const width = BAG_WIDTH * scaleFactor;
+            const height = BAG_HEIGHT * scaleFactor;
+            ctx.drawImage(bagImage, x, y, width, height);
+            ctx.restore();
+        }
+
+        // 発射台の描画
+        function drawShooter(x, y) {
+            const width = SHOOTER_WIDTH * scaleFactor;
+            const height = SHOOTER_HEIGHT * scaleFactor;
+            ctx.drawImage(launchpadImage, x - width/2, y, width, height);
+        }
+
+        // ネギの描画
+        function drawNegi(x, y) {
+            const width = NEGI_WIDTH * scaleFactor;
+            const height = NEGI_HEIGHT * scaleFactor;
+            ctx.drawImage(negiImage, x - width/2, y, width, height);
+        }
+
+        // 海の描画
+        function drawOcean() {
+            ctx.fillStyle = 'rgba(0, 48, 143, 1)';
+            ctx.fillRect(GAME_WIDTH - OCEAN_WIDTH, 0, OCEAN_WIDTH, GAME_HEIGHT);
+        }
+
+        // 衝突判定
+        function checkCollision(negi, bag) {
+            const bagWidth = BAG_WIDTH * scaleFactor;
+            const bagHeight = BAG_HEIGHT * scaleFactor;
+            return negi.x > bag.x &&
+                   negi.x < bag.x + bagWidth &&
+                   negi.y > bag.y &&
+                   negi.y < bag.y + bagHeight;
+        }
+
+        // ネギの発射
+        function fireNegi() {
+            if (!negi.active) {
+                negi.x = shooter.x;
+                negi.y = shooter.y;
+                negi.active = true;
+                negiLaunchSound.play();
+            }
+        }
+
+        // ゲームの更新
+        function update() {
+            // プラスチック袋の移動
+            plasticBags.forEach(bag => {
+                if (bag.active) {
+                    bag.x += gameSpeed;
+                    
+                    // 海に到達した場合のフェードアウトとゲームオーバー
+                    if (bag.x + BAG_WIDTH * scaleFactor > GAME_WIDTH - OCEAN_WIDTH) {
+                        bag.opacity = Math.max(0, bag.opacity - 0.02);
+                        if (bag.opacity <= 0) {
+                            bag.active = false;
+                            gameOver = true;
+                            gameOverSound.play();
+                        }
+                    }
+                }
+            });
+
+            // ネギの移動
+            if (negi.active) {
+                negi.y -= negi.speed;
+                
+                if (negi.y < 0) {
+                    negi.active = false;
+                }
+
+                plasticBags.forEach(bag => {
+                    if (bag.active && bag.opacity === 1 && checkCollision(negi, bag)) {
+                        bag.active = false;
+                        negi.active = false;
+                    }
+                });
+            }
+
+            // ステージクリア判定
+            if (plasticBags.every(bag => !bag.active)) {
+                stageCleared = true;
+                stageClearSound.play();
+            }
+        }
+
+        // 描画
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawOcean();
+
+            plasticBags.forEach(bag => {
+                if (bag.active) {
+                    drawPlasticBag(bag.x, bag.y, bag.opacity);
+                }
+            });
+
+            drawShooter(shooter.x, shooter.y);
+
+            if (negi.active) {
+                drawNegi(negi.x, negi.y);
+            }
+
+            // ステージ情報の表示
+            ctx.fillStyle = '#fff';
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(`レベル: ${currentStage}`, 10, 30);
+
+            if (gameOver) {
+                ctx.fillStyle = '#fff';
+                ctx.font = '48px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('ゲームオーバー', GAME_WIDTH/2, GAME_HEIGHT/2);
+            } else if (stageCleared) {
+                ctx.fillStyle = '#fff';
+                ctx.font = '48px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('ゲームクリア', GAME_WIDTH/2, GAME_HEIGHT/2);
+                ctx.font = '24px Arial';
+                ctx.fillText('スペースキーで次のレベルへ', GAME_WIDTH/2, GAME_HEIGHT/2 + 50);
+            }
+        }
+
+        // ゲームループ
+        function gameLoop() {
+            if (!gameOver && !stageCleared) {
+                update();
+            }
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 次のステージの準備
+        function prepareNextStage() {
+            currentStage++;
+            gameSpeed += 0.5;
+            stageCleared = false;
+            initPlasticBags();
+        }
+
+        // ゲームの初期化
+        function initGame() {
+            resizeCanvas();
+            initPlasticBags();
+            gameLoop();
+        }
+
+        // ゲーム開始
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameStarted = true;
+            initGame();
+        }
+
+        // キーボード操作
+        document.addEventListener('keydown', (e) => {
+            if (!gameStarted || gameOver) return;
+
+            if (stageCleared && e.key === ' ') {
+                prepareNextStage();
+                return;
+            }
+
+            switch(e.key) {
+                case 'ArrowLeft':
+                    shooter.x = Math.max(SHOOTER_WIDTH * scaleFactor/2, shooter.x - shooter.speed);
+                    break;
+                case 'ArrowRight':
+                    shooter.x = Math.min(GAME_WIDTH - OCEAN_WIDTH - SHOOTER_WIDTH * scaleFactor/2, shooter.x + shooter.speed);
+                    break;
+                case ' ':
+                    fireNegi();
+                    break;
+            }
+        });
+
+        // タッチボタン操作
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        const fireBtn = document.getElementById('fireBtn');
+
+        let moveInterval = null;
+
+        function startMoving(direction) {
+            if (moveInterval) return;
+            moveInterval = setInterval(() => {
+                if (direction === 'left') {
+                    shooter.x = Math.max(SHOOTER_WIDTH * scaleFactor/2, shooter.x - shooter.speed);
+                } else {
+                    shooter.x = Math.min(GAME_WIDTH - OCEAN_WIDTH - SHOOTER_WIDTH * scaleFactor/2, shooter.x + shooter.speed);
+                }
+            }, 16);
+        }
+
+        function stopMoving() {
+            if (moveInterval) {
+                clearInterval(moveInterval);
+                moveInterval = null;
+            }
+        }
+
+        // タッチ操作のイベントリスナー
+        leftBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.preventDefault();
+            startMoving('left');
+        });
+
+        rightBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startMoving('right');
+        });
+
+        leftBtn.addEventListener('touchend', stopMoving);
+        rightBtn.addEventListener('touchend', stopMoving);
+
+        fireBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (stageCleared) {
+                prepareNextStage();
+            } else {
+                fireNegi();
+            }
+        });
+
+        // ウィンドウリサイズ対応
+        window.addEventListener('resize', resizeCanvas);
+
+        // スタートボタンのイベントリスナー
+        startButton.addEventListener('click', startGame);
+    </script>
+</body>
+</html>
